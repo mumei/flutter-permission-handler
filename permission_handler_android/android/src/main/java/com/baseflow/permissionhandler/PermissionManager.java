@@ -433,6 +433,8 @@ final class PermissionManager implements PluginRegistry.ActivityResultListener, 
                 if (!requestResults.containsKey(permission)) {
                     requestResults.put(permission, PermissionConstants.PERMISSION_STATUS_GRANTED);
                 }
+                // Clear any previous denial history for granted permissions
+                PermissionUtils.clearDenialHistoryForPermission(activity, permission);
                 continue;
             }
 
