@@ -158,13 +158,24 @@ final class PermissionManager implements PluginRegistry.ActivityResultListener, 
 
         requestResults.put(permission, status);
         pendingRequestCount--;
+        
+        // Ensure pendingRequestCount doesn't go below zero
+        if (pendingRequestCount < 0) {
+            Log.w(PermissionConstants.LOG_TAG, "pendingRequestCount went negative (" + pendingRequestCount + "), resetting to 0");
+            pendingRequestCount = 0;
+        }
 
         // Post result if all requests have been handled.
         if (successCallback != null && pendingRequestCount == 0) {
             Log.d(PermissionConstants.LOG_TAG, "Special permission processed, calling successCallback");
             this.successCallback.onSuccess(requestResults);
+            // Clear state after successful callback
+            this.successCallback = null;
+            this.requestResults = null;
         } else if (pendingRequestCount == 0) {
             Log.w(PermissionConstants.LOG_TAG, "Special permission processed but successCallback is null");
+            // Clear state even if callback is null
+            this.requestResults = null;
         } else {
             Log.d(PermissionConstants.LOG_TAG, "Still waiting for " + pendingRequestCount + " more permission results");
         }
@@ -289,13 +300,24 @@ final class PermissionManager implements PluginRegistry.ActivityResultListener, 
         }
 
         pendingRequestCount -= grantResults.length;
+        
+        // Ensure pendingRequestCount doesn't go below zero
+        if (pendingRequestCount < 0) {
+            Log.w(PermissionConstants.LOG_TAG, "pendingRequestCount went negative (" + pendingRequestCount + "), resetting to 0");
+            pendingRequestCount = 0;
+        }
 
         // Post result if all requests have been handled.
         if (successCallback != null && pendingRequestCount == 0) {
             Log.d(PermissionConstants.LOG_TAG, "All permissions processed, calling successCallback");
             this.successCallback.onSuccess(requestResults);
+            // Clear state after successful callback
+            this.successCallback = null;
+            this.requestResults = null;
         } else if (pendingRequestCount == 0) {
             Log.w(PermissionConstants.LOG_TAG, "All permissions processed but successCallback is null");
+            // Clear state even if callback is null
+            this.requestResults = null;
         } else {
             Log.d(PermissionConstants.LOG_TAG, "Still waiting for " + pendingRequestCount + " permission results");
         }
