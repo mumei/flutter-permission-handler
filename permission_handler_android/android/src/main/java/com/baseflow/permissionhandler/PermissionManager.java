@@ -50,14 +50,6 @@ final class PermissionManager implements PluginRegistry.ActivityResultListener, 
      */
     private int pendingRequestCount;
     /**
-     * Timestamp of the last permission request to detect duplicate requests
-     */
-    private long lastRequestTimestamp = 0;
-    /**
-     * Flag to prevent processing duplicate onRequestPermissionsResult calls
-     */
-    private boolean processingResults = false;
-    /**
      * The results of resolved permission requests.
      * <p>
      * This map holds the results to resolved permission requests received through
@@ -73,14 +65,6 @@ final class PermissionManager implements PluginRegistry.ActivityResultListener, 
     }
 
     public void setActivity(@Nullable Activity activity) {
-        // If activity changes while permissions are pending, reset the state
-        // to prevent stuck requests
-        if (this.activity != activity && pendingRequestCount > 0) {
-            Log.d(PermissionConstants.LOG_TAG, "Activity changed while permission request was pending, resetting state");
-            pendingRequestCount = 0;
-            successCallback = null;
-            requestResults = null;
-        }
         this.activity = activity;
     }
 
@@ -166,26 +150,10 @@ final class PermissionManager implements PluginRegistry.ActivityResultListener, 
 
         requestResults.put(permission, status);
         pendingRequestCount--;
-        
-        // Ensure pendingRequestCount doesn't go below zero
-        if (pendingRequestCount < 0) {
-            Log.w(PermissionConstants.LOG_TAG, "pendingRequestCount went negative (" + pendingRequestCount + "), resetting to 0");
-            pendingRequestCount = 0;
-        }
 
         // Post result if all requests have been handled.
         if (successCallback != null && pendingRequestCount == 0) {
-            Log.d(PermissionConstants.LOG_TAG, "Special permission processed, calling successCallback");
             this.successCallback.onSuccess(requestResults);
-            // Clear state after successful callback
-            this.successCallback = null;
-            this.requestResults = null;
-        } else if (pendingRequestCount == 0) {
-            Log.w(PermissionConstants.LOG_TAG, "Special permission processed but successCallback is null");
-            // Clear state even if callback is null
-            this.requestResults = null;
-        } else {
-            Log.d(PermissionConstants.LOG_TAG, "Still waiting for " + pendingRequestCount + " more permission results");
         }
         return true;
     }
@@ -196,32 +164,17 @@ final class PermissionManager implements PluginRegistry.ActivityResultListener, 
         @NonNull String[] permissions,
         @NonNull int[] grantResults) {
 
-        Log.d(PermissionConstants.LOG_TAG, "onRequestPermissionsResult called: requestCode=" + requestCode + 
-              ", permissions.length=" + permissions.length + ", grantResults.length=" + grantResults.length + 
-              ", currentPendingCount=" + pendingRequestCount + ", processingResults=" + processingResults);
-
-        if (processingResults) {
-            Log.w(PermissionConstants.LOG_TAG, "onRequestPermissionsResult called while already processing results, ignoring");
-            return false;
-        }
-
         if (requestCode != PermissionConstants.PERMISSION_CODE) {
-            Log.w(PermissionConstants.LOG_TAG, "Unexpected request code: " + requestCode + " (expected: " + PermissionConstants.PERMISSION_CODE + ")");
             pendingRequestCount = 0;
             return false;
         }
-
-        processingResults = true;
 
         if (requestResults == null) {
-            pendingRequestCount = 0;
-            processingResults = false;
             return false;
         }
 
         if (permissions.length == 0 && grantResults.length == 0) {
             pendingRequestCount = 0;
-            processingResults = false;
             Log.w(PermissionConstants.LOG_TAG, "onRequestPermissionsResult is called without results. This is probably caused by interfering request codes. If you see this error, please file an issue in flutter-permission-handler, including a list of plugins used by this application: https://github.com/Baseflow/flutter-permission-handler/issues");
             return false;
         }
@@ -322,29 +275,11 @@ final class PermissionManager implements PluginRegistry.ActivityResultListener, 
         }
 
         pendingRequestCount -= grantResults.length;
-        
-        // Ensure pendingRequestCount doesn't go below zero
-        if (pendingRequestCount < 0) {
-            Log.w(PermissionConstants.LOG_TAG, "pendingRequestCount went negative (" + pendingRequestCount + "), resetting to 0");
-            pendingRequestCount = 0;
-        }
 
         // Post result if all requests have been handled.
         if (successCallback != null && pendingRequestCount == 0) {
-            Log.d(PermissionConstants.LOG_TAG, "All permissions processed, calling successCallback");
             this.successCallback.onSuccess(requestResults);
-            // Clear state after successful callback
-            this.successCallback = null;
-            this.requestResults = null;
-        } else if (pendingRequestCount == 0) {
-            Log.w(PermissionConstants.LOG_TAG, "All permissions processed but successCallback is null");
-            // Clear state even if callback is null
-            this.requestResults = null;
-        } else {
-            Log.d(PermissionConstants.LOG_TAG, "Still waiting for " + pendingRequestCount + " permission results");
         }
-        
-        processingResults = false;
         return true;
     }
 
@@ -397,19 +332,12 @@ final class PermissionManager implements PluginRegistry.ActivityResultListener, 
         List<Integer> permissions,
         RequestPermissionsSuccessCallback successCallback,
         ErrorCallback errorCallback) {
-        
-        long currentTime = System.currentTimeMillis();
-        // Check for duplicate requests within 1 second
-        if (pendingRequestCount > 0 || (currentTime - lastRequestTimestamp < 1000)) {
-            Log.w(PermissionConstants.LOG_TAG, "Permission request blocked: already have " + pendingRequestCount + 
-                  " pending requests, time since last request: " + (currentTime - lastRequestTimestamp) + "ms");
+        if (pendingRequestCount > 0) {
             errorCallback.onError(
                 "PermissionHandler.PermissionManager",
                 "A request for permissions is already running, please wait for it to finish before doing another request (note that you can request multiple permissions at the same time).");
             return;
         }
-        
-        lastRequestTimestamp = currentTime;
 
         if (activity == null) {
             Log.d(PermissionConstants.LOG_TAG, "Unable to detect current Activity.");
@@ -420,11 +348,9 @@ final class PermissionManager implements PluginRegistry.ActivityResultListener, 
             return;
         }
 
-        Log.d(PermissionConstants.LOG_TAG, "Starting permission request for " + permissions.size() + " permissions (current pendingRequestCount: " + pendingRequestCount + ")");
         this.successCallback = successCallback;
         this.requestResults = new HashMap<>();
         this.pendingRequestCount = 0; // sanity check
-        this.processingResults = false; // reset processing flag
 
         ArrayList<String> permissionsToRequest = new ArrayList<>();
         for (Integer permission : permissions) {
@@ -506,7 +432,6 @@ final class PermissionManager implements PluginRegistry.ActivityResultListener, 
 
         // Request runtime permissions.
         if (permissionsToRequest.size() > 0) {
-            Log.d(PermissionConstants.LOG_TAG, "Requesting " + permissionsToRequest.size() + " runtime permissions, pendingRequestCount=" + pendingRequestCount);
             final String[] requestPermissions = permissionsToRequest.toArray(new String[0]);
             ActivityCompat.requestPermissions(
                 activity,
@@ -516,13 +441,7 @@ final class PermissionManager implements PluginRegistry.ActivityResultListener, 
 
         // Post results immediately if no requests are pending.
         if (this.successCallback != null && pendingRequestCount == 0) {
-            Log.d(PermissionConstants.LOG_TAG, "No pending requests, calling successCallback immediately");
             this.successCallback.onSuccess(requestResults);
-            // Clear state after successful callback
-            this.successCallback = null;
-            this.requestResults = null;
-        } else {
-            Log.d(PermissionConstants.LOG_TAG, "Waiting for " + pendingRequestCount + " pending requests to complete");
         }
     }
 
