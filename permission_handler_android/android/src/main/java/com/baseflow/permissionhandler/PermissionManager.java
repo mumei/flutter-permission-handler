@@ -65,6 +65,14 @@ final class PermissionManager implements PluginRegistry.ActivityResultListener, 
     }
 
     public void setActivity(@Nullable Activity activity) {
+        // If activity changes while permissions are pending, reset the state
+        // to prevent stuck requests
+        if (this.activity != activity && pendingRequestCount > 0) {
+            Log.d(PermissionConstants.LOG_TAG, "Activity changed while permission request was pending, resetting state");
+            pendingRequestCount = 0;
+            successCallback = null;
+            requestResults = null;
+        }
         this.activity = activity;
     }
 
@@ -153,7 +161,12 @@ final class PermissionManager implements PluginRegistry.ActivityResultListener, 
 
         // Post result if all requests have been handled.
         if (successCallback != null && pendingRequestCount == 0) {
+            Log.d(PermissionConstants.LOG_TAG, "Special permission processed, calling successCallback");
             this.successCallback.onSuccess(requestResults);
+        } else if (pendingRequestCount == 0) {
+            Log.w(PermissionConstants.LOG_TAG, "Special permission processed but successCallback is null");
+        } else {
+            Log.d(PermissionConstants.LOG_TAG, "Still waiting for " + pendingRequestCount + " more permission results");
         }
         return true;
     }
@@ -170,6 +183,7 @@ final class PermissionManager implements PluginRegistry.ActivityResultListener, 
         }
 
         if (requestResults == null) {
+            pendingRequestCount = 0;
             return false;
         }
 
@@ -278,7 +292,12 @@ final class PermissionManager implements PluginRegistry.ActivityResultListener, 
 
         // Post result if all requests have been handled.
         if (successCallback != null && pendingRequestCount == 0) {
+            Log.d(PermissionConstants.LOG_TAG, "All permissions processed, calling successCallback");
             this.successCallback.onSuccess(requestResults);
+        } else if (pendingRequestCount == 0) {
+            Log.w(PermissionConstants.LOG_TAG, "All permissions processed but successCallback is null");
+        } else {
+            Log.d(PermissionConstants.LOG_TAG, "Still waiting for " + pendingRequestCount + " permission results");
         }
         return true;
     }
@@ -333,6 +352,7 @@ final class PermissionManager implements PluginRegistry.ActivityResultListener, 
         RequestPermissionsSuccessCallback successCallback,
         ErrorCallback errorCallback) {
         if (pendingRequestCount > 0) {
+            Log.w(PermissionConstants.LOG_TAG, "Permission request blocked: already have " + pendingRequestCount + " pending requests");
             errorCallback.onError(
                 "PermissionHandler.PermissionManager",
                 "A request for permissions is already running, please wait for it to finish before doing another request (note that you can request multiple permissions at the same time).");
@@ -348,6 +368,7 @@ final class PermissionManager implements PluginRegistry.ActivityResultListener, 
             return;
         }
 
+        Log.d(PermissionConstants.LOG_TAG, "Starting permission request for " + permissions.size() + " permissions");
         this.successCallback = successCallback;
         this.requestResults = new HashMap<>();
         this.pendingRequestCount = 0; // sanity check
