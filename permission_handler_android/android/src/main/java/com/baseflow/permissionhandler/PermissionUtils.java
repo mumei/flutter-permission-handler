@@ -526,9 +526,6 @@ public class PermissionUtils {
         final boolean wasDeniedBefore = PermissionUtils.wasPermissionDeniedBefore(activity, permissionName);
         final boolean shouldShowRationale = ActivityCompat.shouldShowRequestPermissionRationale(activity, permissionName);
 
-        Log.d(PermissionConstants.LOG_TAG, "determineDeniedVariant: permission=" + permissionName + 
-              ", wasDeniedBefore=" + wasDeniedBefore + ", shouldShowRationale=" + shouldShowRationale);
-
         // If shouldShowRationale is true, it means the system is willing to show the permission dialog again
         // This typically means "Ask every time" is set, so we should return DENIED, not NEVER_ASK_AGAIN
         if (shouldShowRationale) {
