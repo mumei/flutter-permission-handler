@@ -465,6 +465,11 @@ public class PermissionUtils {
             return determineDeniedVariant(activity, permissionName);
         }
 
+        // If permission is granted, clear any previous denial record
+        if (activity != null) {
+            clearPermissionDeniedHistory(activity, permissionName);
+        }
+
         return PermissionConstants.PERMISSION_STATUS_GRANTED;
     }
 
@@ -519,20 +524,32 @@ public class PermissionUtils {
         }
 
         final boolean wasDeniedBefore = PermissionUtils.wasPermissionDeniedBefore(activity, permissionName);
-        final boolean shouldShowRational = !PermissionUtils.isNeverAskAgainSelected(activity, permissionName);
+        final boolean shouldShowRationale = ActivityCompat.shouldShowRequestPermissionRationale(activity, permissionName);
 
-        //noinspection SimplifiableConditionalExpression
-        final boolean isDenied = wasDeniedBefore ? !shouldShowRational : shouldShowRational;
+        Log.d(PermissionConstants.LOG_TAG, "determineDeniedVariant: permission=" + permissionName + 
+              ", wasDeniedBefore=" + wasDeniedBefore + ", shouldShowRationale=" + shouldShowRationale);
 
-        if (!wasDeniedBefore && isDenied) {
-            setPermissionDenied(activity, permissionName);
+        // If shouldShowRationale is true, it means the system is willing to show the permission dialog again
+        // This typically means "Ask every time" is set, so we should return DENIED, not NEVER_ASK_AGAIN
+        if (shouldShowRationale) {
+            if (!wasDeniedBefore) {
+                setPermissionDenied(activity, permissionName);
+            }
+            return PermissionConstants.PERMISSION_STATUS_DENIED;
         }
 
-        if (wasDeniedBefore && isDenied) {
+        // If shouldShowRationale is false, we need to distinguish between:
+        // 1. First time denial (user dismissed dialog) -> DENIED
+        // 2. Second+ time denial with "Don't ask again" -> NEVER_ASK_AGAIN
+        if (!wasDeniedBefore) {
+            // First time the permission was denied - mark it as denied and return DENIED
+            setPermissionDenied(activity, permissionName);
+            return PermissionConstants.PERMISSION_STATUS_DENIED;
+        } else {
+            // Permission was denied before and shouldShowRationale is false
+            // This means "Don't ask again" was selected -> NEVER_ASK_AGAIN
             return PermissionConstants.PERMISSION_STATUS_NEVER_ASK_AGAIN;
         }
-
-        return PermissionConstants.PERMISSION_STATUS_DENIED;
     }
 
     @RequiresApi(api = Build.VERSION_CODES.M)
@@ -605,5 +622,37 @@ public class PermissionUtils {
     private static void setPermissionDenied(final Context context, final String permissionName) {
         final SharedPreferences sharedPreferences = context.getSharedPreferences(permissionName, Context.MODE_PRIVATE);
         sharedPreferences.edit().putBoolean(SHARED_PREFERENCES_PERMISSION_WAS_DENIED_BEFORE_KEY, true).apply();
+    }
+
+    /**
+     * Clears the denial history for a permission in {@link SharedPreferences}.
+     * <p>
+     * This should be called when a permission is granted to reset the denial state,
+     * allowing proper detection of future denial patterns.
+     *
+     * @param context        context needed for accessing shared preferences.
+     * @param permissionName the name of the permission
+     */
+    private static void clearPermissionDeniedHistory(final Context context, final String permissionName) {
+        final SharedPreferences sharedPreferences = context.getSharedPreferences(permissionName, Context.MODE_PRIVATE);
+        sharedPreferences.edit().remove(SHARED_PREFERENCES_PERMISSION_WAS_DENIED_BEFORE_KEY).apply();
+    }
+
+    /**
+     * Public method to clear denial history for a permission group.
+     * <p>
+     * This clears the denial history for all permissions in the group to ensure proper
+     * status detection in future requests.
+     *
+     * @param context    context needed for accessing shared preferences.
+     * @param permission the permission group constant.
+     */
+    public static void clearDenialHistoryForPermission(final Context context, @PermissionConstants.PermissionGroup int permission) {
+        final List<String> names = getManifestNames(context, permission);
+        if (names != null) {
+            for (String permissionName : names) {
+                clearPermissionDeniedHistory(context, permissionName);
+            }
+        }
     }
 }
